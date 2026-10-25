@@ -34,7 +34,7 @@ jobs:
           mkdir -p app_temp/android/app/src/main/res/xml
           mkdir -p app_temp/android/app/src/main/res/values
 
-          # 1. main.dart otimizado para o modo moedas (padrão de 22s)
+          # 1. main.dart com Modo Moedas + Auto-Curtida
           cat << 'EOF' > app_temp/lib/main.dart
           import 'package:flutter/material.dart';
           import 'package:flutter/services.dart';
@@ -70,8 +70,8 @@ jobs:
           class _ControlPanelPageState extends State<ControlPanelPage> {
             static const platform = MethodChannel('com.autoscroll/accessibility');
             bool isRunning = false;
-            double baseDelaySeconds = 22.0; // Otimizado para fechar o círculo de moedas
-            String statusMessage = 'Pronto para farmar moedas';
+            double baseDelaySeconds = 22.0;
+            String statusMessage = 'Pronto para farmar moedas e curtir';
 
             Future<void> _toggleService() async {
               try {
@@ -80,7 +80,7 @@ jobs:
                   await platform.invokeMethod('startService', {'delay': delayMs});
                   setState(() {
                     isRunning = true;
-                    statusMessage = 'MODO MOEDAS ATIVO! Abra o Kwai (1º swipe em 5s).';
+                    statusMessage = 'MOEDAS + CURTIR ATIVO! Abra o Kwai.';
                   });
                 } else {
                   await platform.invokeMethod('stopService');
@@ -107,7 +107,7 @@ jobs:
             Widget build(BuildContext context) {
               return Scaffold(
                 appBar: AppBar(
-                  title: const Text('AutoScroll Pro (Modo Moedas)'),
+                  title: const Text('AutoScroll Pro (Moedas + Curtir)'),
                   centerTitle: true,
                   backgroundColor: const Color(0xFF1F1F1F),
                 ),
@@ -130,13 +130,13 @@ jobs:
                         child: Column(
                           children: [
                             Icon(
-                              isRunning ? Icons.monetization_on : Icons.pause_circle_filled,
+                              isRunning ? Icons.favorite : Icons.pause_circle_filled,
                               size: 64,
                               color: isRunning ? Colors.amberAccent : Colors.grey,
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              isRunning ? 'A FARMAR BÓNUS' : 'MOTOR PARADO',
+                              isRunning ? 'CURTINDO & FARMANDO' : 'MOTOR PARADO',
                               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                             ),
                             const SizedBox(height: 8),
@@ -178,8 +178,8 @@ jobs:
                           textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                         onPressed: _toggleService,
-                        icon: Icon(isRunning ? Icons.stop : Icons.play_arrow),
-                        label: Text(isRunning ? 'PARAR AUTOMAÇÃO' : 'INICIAR MODO MOEDAS'),
+                        icon: Icon(isRunning ? Icons.stop : Icons.favorite),
+                        label: Text(isRunning ? 'PARAR AUTOMAÇÃO' : 'INICIAR COM AUTO-CURTIR'),
                       ),
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
@@ -214,7 +214,7 @@ jobs:
           cat << 'EOF' > app_temp/android/app/src/main/res/values/strings.xml
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
-              <string name="accessibility_service_description">AutoScroll Pro automatiza a navegação de vídeos.</string>
+              <string name="accessibility_service_description">AutoScroll Pro automatiza a navegação e curtidas.</string>
           </resources>
           EOF
 
@@ -305,7 +305,7 @@ jobs:
           }
           EOF
 
-          # 4. AutoScrollService.kt com variação inteligente de tempo para moedas
+          # 4. AutoScrollService.kt com Toque (Curtir) + Swipe (Próximo Vídeo)
           cat << 'EOF' > app_temp/android/app/src/main/kotlin/com/example/autoscroll/AutoScrollService.kt
           package com.example.autoscroll
 
@@ -337,9 +337,9 @@ jobs:
               fun startScrolling(baseDelay: Long) {
                   stopScrolling()
                   isRunning = true
-                  Toast.makeText(applicationContext, "Modo Moedas ativo! Abra o Kwai...", Toast.LENGTH_LONG).show()
+                  Toast.makeText(applicationContext, "Moedas + Curtir ativo! Abra o Kwai...", Toast.LENGTH_LONG).show()
                   handler.postDelayed({
-                      performHumanSwipe(baseDelay)
+                      performHumanAction(baseDelay)
                   }, 5000L)
               }
 
@@ -348,17 +348,16 @@ jobs:
                   handler.removeCallbacksAndMessages(null)
               }
 
-              private fun scheduleNextSwipe(baseDelay: Long) {
+              private fun scheduleNextAction(baseDelay: Long) {
                   if (!isRunning) return
-                  // Adiciona variação segura para fingir que é um humano a ver o vídeo (± 5 segundos)
-                  val jitterDelay = baseDelay + (random.nextInt(10000) - 5000)
+                  val jitterDelay = baseDelay + (random.nextInt(8000) - 4000)
                   val finalWait = maxOf(15000L, jitterDelay)
                   handler.postDelayed({
-                      performHumanSwipe(baseDelay)
+                      performHumanAction(baseDelay)
                   }, finalWait)
               }
 
-              private fun performHumanSwipe(baseDelay: Long) {
+              private fun performHumanAction(baseDelay: Long) {
                   if (!isRunning) return
                   if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
 
@@ -366,33 +365,43 @@ jobs:
                   val width = metrics.widthPixels.toFloat()
                   val height = metrics.heightPixels.toFloat()
 
+                  val gestureBuilder = GestureDescription.Builder()
+
+                  // 1. Toque no centro da tela para curtir o vídeo
+                  val likePath = Path().apply {
+                      moveTo(width * 0.5f, height * 0.45f)
+                  }
+                  val likeStroke = GestureDescription.StrokeDescription(likePath, 0L, 50L)
+                  gestureBuilder.addStroke(likeStroke)
+
+                  // 2. Swipe para cima para ir ao próximo vídeo (inicia após 300ms)
                   val startX = (width * 0.45f) + (random.nextFloat() * (width * 0.1f))
                   val startY = (height * 0.78f) + (random.nextFloat() * (height * 0.05f))
                   val endX = (width * 0.45f) + (random.nextFloat() * (width * 0.1f))
                   val endY = (height * 0.18f) + (random.nextFloat() * (height * 0.05f))
 
-                  val path = Path()
-                  path.moveTo(startX, startY)
-                  path.lineTo(endX, endY)
-
+                  val swipePath = Path().apply {
+                      moveTo(startX, startY)
+                      lineTo(endX, endY)
+                  }
                   val duration = (250 + random.nextInt(200)).toLong()
-                  val gestureBuilder = GestureDescription.Builder()
-                  gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0L, duration))
+                  val swipeStroke = GestureDescription.StrokeDescription(swipePath, 300L, duration)
+                  gestureBuilder.addStroke(swipeStroke)
 
                   val dispatched = dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
                       override fun onCompleted(gestureDescription: GestureDescription?) {
                           super.onCompleted(gestureDescription)
-                          scheduleNextSwipe(baseDelay)
+                          scheduleNextAction(baseDelay)
                       }
 
                       override fun onCancelled(gestureDescription: GestureDescription?) {
                           super.onCancelled(gestureDescription)
-                          scheduleNextSwipe(baseDelay)
+                          scheduleNextAction(baseDelay)
                       }
                   }, null)
 
                   if (!dispatched) {
-                      scheduleNextSwipe(baseDelay)
+                      scheduleNextAction(baseDelay)
                   }
               }
 
@@ -402,6 +411,7 @@ jobs:
                   isRunning = false
               }
 
+              override********/
               override fun onDestroy() {
                   super.onDestroy()
                   instance = null
