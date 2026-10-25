@@ -25,29 +25,208 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Create Flutter Project & Inject Custom Code
+      - name: Create Project & Build APK
         run: |
           flutter create app_temp --org com.example --project-name autoscroll --platforms=android
-          
+
+          # 1. Copia o main.dart do repositório
           if [ -f "lib/main.dart" ]; then cp lib/main.dart app_temp/lib/main.dart; fi
-          if [ -f "pubspec.yaml" ]; then cp pubspec.yaml app_temp/pubspec.yaml; fi
-          
+
+          # 2. Cria as pastas necessárias do Android
           mkdir -p app_temp/android/app/src/main/kotlin/com/example/autoscroll
-          if [ -f "android/app/src/main/AndroidManifest.xml" ]; then
-            cp android/app/src/main/AndroidManifest.xml app_temp/android/app/src/main/AndroidManifest.xml
-          fi
-          if [ -f "android/app/src/main/kotlin/com/example/autoscroll/MainActivity.kt" ]; then
-            cp android/app/src/main/kotlin/com/example/autoscroll/MainActivity.kt app_temp/android/app/src/main/kotlin/com/example/autoscroll/MainActivity.kt
-          fi
-          if [ -f "android/app/src/main/kotlin/com/example/autoscroll/AutoScrollService.kt" ]; then
-            cp android/app/src/main/kotlin/com/example/autoscroll/AutoScrollService.kt app_temp/android/app/src/main/kotlin/com/example/autoscroll/AutoScrollService.kt
-          fi
+          mkdir -p app_temp/android/app/src/main/res/xml
+          mkdir -p app_temp/android/app/src/main/res/values
+
+          # 3. Gera o ficheiro de configuração da Acessibilidade (XML)
+          cat << 'EOF' > app_temp/android/app/src/main/res/xml/accessibility_service_config.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:accessibilityEventTypes="typeAllMask"
+              android:accessibilityFeedbackType="feedbackGeneric"
+              android:accessibilityFlags="flagDefault"
+              android:canPerformGestures="true"
+              android:canRetrieveWindowContent="true"
+              android:description="@string/accessibility_service_description"
+              android:notificationTimeout="100" />
+          EOF
+
+          # 4. Gera o ficheiro strings.xml
+          cat << 'EOF' > app_temp/android/app/src/main/res/values/strings.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="accessibility_service_description">AutoScroll Pro automatiza a navegação de vídeos com segurança anti-ban.</string>
+          </resources>
+          EOF
+
+          # 5. Gera o AndroidManifest.xml
+          cat << 'EOF' > app_temp/android/app/src/main/AndroidManifest.xml
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:label="AutoScroll Pro"
+                  android:name="${applicationName}"
+                  android:icon="@mipmap/ic_launcher">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop"
+                      android:theme="@style/LaunchTheme"
+                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+                      android:hardwareAccelerated="true"
+                      android:windowSoftInputMode="adjustResize">
+                      <meta-data
+                        android:name="io.flutter.embedding.android.NormalTheme"
+                        android:resource="@style/NormalTheme"
+                        />
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+                  <meta-data
+                      android:name="flutterEmbedding"
+                      android:value="2" />
+
+                  <service
+                      android:name=".AutoScrollService"
+                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.accessibilityservice.AccessibilityService" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.accessibilityservice"
+                          android:resource="@xml/accessibility_service_config" />
+                  </service>
+              </application>
+          </manifest>
+          EOF
+
+          # 6. Gera o MainActivity.kt
+          cat << 'EOF' > app_temp/android/app/src/main/kotlin/com/example/autoscroll/MainActivity.kt
+          package com.example.autoscroll
+
+          import io.flutter.embedding.android.FlutterActivity
+          import io.flutter.embedding.engine.FlutterEngine
+          import io.flutter.plugin.common.MethodChannel
+
+          class MainActivity: FlutterActivity() {
+              private val CHANNEL = "com.autoscroll/accessibility"
+
+              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+                  super.configureFlutterEngine(flutterEngine)
+                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+                      when (call.method) {
+                          "startService" -> {
+                              val delay = call.argument<Int>("delay") ?: 8000
+                              if (AutoScrollService.instance != null) {
+                                  AutoScrollService.instance?.startScrolling(delay.toLong())
+                                  result.success(true)
+                              } else {
+                                  result.error("SERVICE_NOT_RUNNING", "Serviço de acessibilidade não está ativo.", null)
+                              }
+                          }
+                          "stopService" -> {
+                              AutoScrollService.instance?.stopScrolling()
+                              result.success(true)
+                          }
+                          else -> {
+                              result.notImplemented()
+                          }
+                      }
+                  }
+              }
+          }
+          EOF
+
+          # 7. Gera o AutoScrollService.kt corrigido (com GestureDescription? e validação de API)
+          cat << 'EOF' > app_temp/android/app/src/main/kotlin/com/example/autoscroll/AutoScrollService.kt
+          package com.example.autoscroll
+
+          import android.accessibilityservice.AccessibilityService
+          import android.accessibilityservice.GestureDescription
+          import android.graphics.Path
+          import android.os.Build
+          import android.os.Handler
+          import android.os.Looper
+          import android.view.accessibility.AccessibilityEvent
+          import java.util.Random
+
+          class AutoScrollService : AccessibilityService() {
+
+              private val handler = Handler(Looper.getMainLooper())
+              private val random = Random()
+              var isRunning = false
+
+              companion object {
+                  var instance: AutoScrollService? = null
+              }
+
+              override fun onServiceConnected() {
+                  super.onServiceConnected()
+                  instance = this
+              }
+
+              fun startScrolling(baseDelay: Long) {
+                  isRunning = true
+                  performHumanSwipe(baseDelay)
+              }
+
+              fun stopScrolling() {
+                  isRunning = false
+                  handler.removeCallbacksAndMessages(null)
+              }
+
+              private fun performHumanSwipe(baseDelay: Long) {
+                  if (!isRunning) return
+                  if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
+
+                  val path = Path()
+                  val startX = (450 + random.nextInt(100)).toFloat()
+                  val startY = (1700 + random.nextInt(200)).toFloat()
+                  val endX = (430 + random.nextInt(100)).toFloat()
+                  val endY = (400 + random.nextInt(150)).toFloat()
+
+                  path.moveTo(startX, startY)
+                  path.lineTo(endX, endY)
+
+                  val gestureBuilder = GestureDescription.Builder()
+                  val duration = (250 + random.nextInt(200)).toLong()
+                  
+                  gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0L, duration))
+
+                  dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
+                      override fun onCompleted(gestureDescription: GestureDescription?) {
+                          super.onCompleted(gestureDescription)
+                          if (!isRunning) return
+
+                          val jitterDelay = baseDelay + (random.nextInt(4000) - 2000)
+                          val finalWait = maxOf(3000L, jitterDelay)
+
+                          handler.postDelayed({
+                              performHumanSwipe(baseDelay)
+                          }, finalWait)
+                      }
+
+                      override fun onCancelled(gestureDescription: GestureDescription?) {
+                          super.onCancelled(gestureDescription)
+                      }
+                  }, null)
+              }
+
+              override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+
+              override fun onInterrupt() {
+                  isRunning = false
+              }
+
+              override fun onDestroy() {
+                  super.onDestroy()
+                  instance = null
+              }
+          }
+          EOF
 
           cd app_temp
-          
-          # Aceita automaticamente as licenças do Android SDK
-          yes "y" | flutter doctor --android-licenses || true
-          
           flutter pub get
           flutter build apk --release
 
