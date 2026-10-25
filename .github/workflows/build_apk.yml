@@ -25,14 +25,33 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Install dependencies
-        run: flutter pub get
+      - name: Create Flutter Project & Inject Custom Code
+        run: |
+          # Cria um projeto limpo do Flutter com toda a estrutura nativa Android pronta
+          flutter create app_temp --org com.example --project-name autoscroll --platforms=android
+          
+          # Copia os teus ficheiros personalizados para dentro do projeto gerado
+          if [ -f "lib/main.dart" ]; then cp lib/main.dart app_temp/lib/main.dart; fi
+          if [ -f "pubspec.yaml" ]; then cp pubspec.yaml app_temp/pubspec.yaml; fi
+          
+          mkdir -p app_temp/android/app/src/main/kotlin/com/example/autoscroll
+          if [ -f "android/app/src/main/AndroidManifest.xml" ]; then
+            cp android/app/src/main/AndroidManifest.xml app_temp/android/app/src/main/AndroidManifest.xml
+          fi
+          if [ -f "android/app/src/main/kotlin/com/example/autoscroll/MainActivity.kt" ]; then
+            cp android/app/src/main/kotlin/com/example/autoscroll/MainActivity.kt app_temp/android/app/src/main/kotlin/com/example/autoscroll/MainActivity.kt
+          fi
+          if [ -f "android/app/src/main/kotlin/com/example/autoscroll/AutoScrollService.kt" ]; then
+            cp android/app/src/main/kotlin/com/example/autoscroll/AutoScrollService.kt app_temp/android/app/src/main/kotlin/com/example/autoscroll/AutoScrollService.kt
+          fi
 
-      - name: Build APK
-        run: flutter build apk --release
+          # Entra na pasta temporária, obtém dependências e compila o APK
+          cd app_temp
+          flutter pub get
+          flutter build apk --release
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: app_temp/build/app/outputs/flutter-apk/app-release.apk
