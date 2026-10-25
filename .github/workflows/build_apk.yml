@@ -27,10 +27,8 @@ jobs:
 
       - name: Create Flutter Project & Inject Custom Code
         run: |
-          # Cria um projeto limpo do Flutter com toda a estrutura nativa Android pronta
           flutter create app_temp --org com.example --project-name autoscroll --platforms=android
           
-          # Copia os teus ficheiros personalizados para dentro do projeto gerado
           if [ -f "lib/main.dart" ]; then cp lib/main.dart app_temp/lib/main.dart; fi
           if [ -f "pubspec.yaml" ]; then cp pubspec.yaml app_temp/pubspec.yaml; fi
           
@@ -45,8 +43,11 @@ jobs:
             cp android/app/src/main/kotlin/com/example/autoscroll/AutoScrollService.kt app_temp/android/app/src/main/kotlin/com/example/autoscroll/AutoScrollService.kt
           fi
 
-          # Entra na pasta temporária, obtém dependências e compila o APK
           cd app_temp
+          
+          # Aceita automaticamente as licenças do Android SDK
+          yes "y" | flutter doctor --android-licenses || true
+          
           flutter pub get
           flutter build apk --release
 
