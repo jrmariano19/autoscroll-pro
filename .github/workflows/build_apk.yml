@@ -29,15 +29,176 @@ jobs:
         run: |
           flutter create app_temp --org com.example --project-name autoscroll --platforms=android
 
-          # 1. Copia o main.dart do repositório
-          if [ -f "lib/main.dart" ]; then cp lib/main.dart app_temp/lib/main.dart; fi
-
-          # 2. Cria as pastas necessárias do Android
+          mkdir -p app_temp/lib
           mkdir -p app_temp/android/app/src/main/kotlin/com/example/autoscroll
           mkdir -p app_temp/android/app/src/main/res/xml
           mkdir -p app_temp/android/app/src/main/res/values
 
-          # 3. Gera o ficheiro de configuração da Acessibilidade (XML)
+          # 1. main.dart otimizado para o modo moedas (padrão de 22s)
+          cat << 'EOF' > app_temp/lib/main.dart
+          import 'package:flutter/material.dart';
+          import 'package:flutter/services.dart';
+
+          void main() {
+            runApp(const AutoScrollApp());
+          }
+
+          class AutoScrollApp extends StatelessWidget {
+            const AutoScrollApp({super.key});
+
+            @override
+            Widget build(BuildContext context) {
+              return MaterialApp(
+                debugShowCheckedModeBanner: false,
+                title: 'AutoScroll Pro',
+                theme: ThemeData.dark().copyWith(
+                  scaffoldBackgroundColor: const Color(0xFF121212),
+                  colorScheme: const ColorScheme.dark(primary: Colors.amberAccent),
+                ),
+                home: const ControlPanelPage(),
+              );
+            }
+          }
+
+          class ControlPanelPage extends StatefulWidget {
+            const ControlPanelPage({super.key});
+
+            @override
+            State<ControlPanelPage> createState() => _ControlPanelPageState();
+          }
+
+          class _ControlPanelPageState extends State<ControlPanelPage> {
+            static const platform = MethodChannel('com.autoscroll/accessibility');
+            bool isRunning = false;
+            double baseDelaySeconds = 22.0; // Otimizado para fechar o círculo de moedas
+            String statusMessage = 'Pronto para farmar moedas';
+
+            Future<void> _toggleService() async {
+              try {
+                if (!isRunning) {
+                  final int delayMs = (baseDelaySeconds * 1000).toInt();
+                  await platform.invokeMethod('startService', {'delay': delayMs});
+                  setState(() {
+                    isRunning = true;
+                    statusMessage = 'MODO MOEDAS ATIVO! Abra o Kwai (1º swipe em 5s).';
+                  });
+                } else {
+                  await platform.invokeMethod('stopService');
+                  setState(() {
+                    isRunning = false;
+                    statusMessage = 'Automação parada.';
+                  });
+                }
+              } on PlatformException catch (e) {
+                setState(() {
+                  isRunning = false;
+                  statusMessage = e.message ?? 'Erro: Ative a Acessibilidade.';
+                });
+              }
+            }
+
+            Future<void> _openAccessibilitySettings() async {
+              try {
+                await platform.invokeMethod('openSettings');
+              } catch (_) {}
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              return Scaffold(
+                appBar: AppBar(
+                  title: const Text('AutoScroll Pro (Modo Moedas)'),
+                  centerTitle: true,
+                  backgroundColor: const Color(0xFF1F1F1F),
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E1E1E),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isRunning ? Colors.amberAccent : Colors.white24,
+                            width: 2,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(
+                              isRunning ? Icons.monetization_on : Icons.pause_circle_filled,
+                              size: 64,
+                              color: isRunning ? Colors.amberAccent : Colors.grey,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              isRunning ? 'A FARMAR BÓNUS' : 'MOTOR PARADO',
+                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              statusMessage,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.white70),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      Text(
+                        'Tempo por vídeo: ${baseDelaySeconds.toInt()} segundos',
+                        style: const TextStyle(fontSize: 16),
+                        textAlign: TextAlign.center,
+                      ),
+                      Slider(
+                        value: baseDelaySeconds,
+                        min: 15,
+                        max: 45,
+                        divisions: 30,
+                        activeColor: Colors.amberAccent,
+                        label: '${baseDelaySeconds.toInt()}s',
+                        onChanged: isRunning
+                            ? null
+                            : (val) {
+                                setState(() {
+                                  baseDelaySeconds = val;
+                                });
+                              },
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isRunning ? Colors.redAccent : Colors.amberAccent,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 18),
+                          textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        onPressed: _toggleService,
+                        icon: Icon(isRunning ? Icons.stop : Icons.play_arrow),
+                        label: Text(isRunning ? 'PARAR AUTOMAÇÃO' : 'INICIAR MODO MOEDAS'),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        onPressed: _openAccessibilitySettings,
+                        icon: const Icon(Icons.accessibility_new),
+                        label: const Text('ABRIR CONFIG. DE ACESSIBILIDADE'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+          }
+          EOF
+
+          # 2. Configurações XML e AndroidManifest
           cat << 'EOF' > app_temp/android/app/src/main/res/xml/accessibility_service_config.xml
           <?xml version="1.0" encoding="utf-8"?>
           <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
@@ -50,15 +211,13 @@ jobs:
               android:notificationTimeout="100" />
           EOF
 
-          # 4. Gera o ficheiro strings.xml
           cat << 'EOF' > app_temp/android/app/src/main/res/values/strings.xml
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
-              <string name="accessibility_service_description">AutoScroll Pro automatiza a navegação de vídeos com segurança anti-ban.</string>
+              <string name="accessibility_service_description">AutoScroll Pro automatiza a navegação de vídeos.</string>
           </resources>
           EOF
 
-          # 5. Gera o AndroidManifest.xml
           cat << 'EOF' > app_temp/android/app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <application
@@ -101,10 +260,12 @@ jobs:
           </manifest>
           EOF
 
-          # 6. Gera o MainActivity.kt
+          # 3. MainActivity.kt
           cat << 'EOF' > app_temp/android/app/src/main/kotlin/com/example/autoscroll/MainActivity.kt
           package com.example.autoscroll
 
+          import android.content.Intent
+          import android.provider.Settings
           import io.flutter.embedding.android.FlutterActivity
           import io.flutter.embedding.engine.FlutterEngine
           import io.flutter.plugin.common.MethodChannel
@@ -117,16 +278,22 @@ jobs:
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
                       when (call.method) {
                           "startService" -> {
-                              val delay = call.argument<Int>("delay") ?: 8000
-                              if (AutoScrollService.instance != null) {
-                                  AutoScrollService.instance?.startScrolling(delay.toLong())
+                              val delay = call.argument<Number>("delay")?.toLong() ?: 22000L
+                              val service = AutoScrollService.instance
+                              if (service != null) {
+                                  service.startScrolling(delay)
                                   result.success(true)
                               } else {
-                                  result.error("SERVICE_NOT_RUNNING", "Serviço de acessibilidade não está ativo.", null)
+                                  result.error("SERVICE_NOT_RUNNING", "Ative o AutoScroll Pro em Acessibilidade.", null)
                               }
                           }
                           "stopService" -> {
                               AutoScrollService.instance?.stopScrolling()
+                              result.success(true)
+                          }
+                          "openSettings" -> {
+                              val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                              startActivity(intent)
                               result.success(true)
                           }
                           else -> {
@@ -138,7 +305,7 @@ jobs:
           }
           EOF
 
-          # 7. Gera o AutoScrollService.kt corrigido (com GestureDescription? e validação de API)
+          # 4. AutoScrollService.kt com variação inteligente de tempo para moedas
           cat << 'EOF' > app_temp/android/app/src/main/kotlin/com/example/autoscroll/AutoScrollService.kt
           package com.example.autoscroll
 
@@ -149,6 +316,7 @@ jobs:
           import android.os.Handler
           import android.os.Looper
           import android.view.accessibility.AccessibilityEvent
+          import android.widget.Toast
           import java.util.Random
 
           class AutoScrollService : AccessibilityService() {
@@ -167,8 +335,12 @@ jobs:
               }
 
               fun startScrolling(baseDelay: Long) {
+                  stopScrolling()
                   isRunning = true
-                  performHumanSwipe(baseDelay)
+                  Toast.makeText(applicationContext, "Modo Moedas ativo! Abra o Kwai...", Toast.LENGTH_LONG).show()
+                  handler.postDelayed({
+                      performHumanSwipe(baseDelay)
+                  }, 5000L)
               }
 
               fun stopScrolling() {
@@ -176,41 +348,52 @@ jobs:
                   handler.removeCallbacksAndMessages(null)
               }
 
+              private fun scheduleNextSwipe(baseDelay: Long) {
+                  if (!isRunning) return
+                  // Adiciona variação segura para fingir que é um humano a ver o vídeo (± 5 segundos)
+                  val jitterDelay = baseDelay + (random.nextInt(10000) - 5000)
+                  val finalWait = maxOf(15000L, jitterDelay)
+                  handler.postDelayed({
+                      performHumanSwipe(baseDelay)
+                  }, finalWait)
+              }
+
               private fun performHumanSwipe(baseDelay: Long) {
                   if (!isRunning) return
                   if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
 
-                  val path = Path()
-                  val startX = (450 + random.nextInt(100)).toFloat()
-                  val startY = (1700 + random.nextInt(200)).toFloat()
-                  val endX = (430 + random.nextInt(100)).toFloat()
-                  val endY = (400 + random.nextInt(150)).toFloat()
+                  val metrics = resources.displayMetrics
+                  val width = metrics.widthPixels.toFloat()
+                  val height = metrics.heightPixels.toFloat()
 
+                  val startX = (width * 0.45f) + (random.nextFloat() * (width * 0.1f))
+                  val startY = (height * 0.78f) + (random.nextFloat() * (height * 0.05f))
+                  val endX = (width * 0.45f) + (random.nextFloat() * (width * 0.1f))
+                  val endY = (height * 0.18f) + (random.nextFloat() * (height * 0.05f))
+
+                  val path = Path()
                   path.moveTo(startX, startY)
                   path.lineTo(endX, endY)
 
-                  val gestureBuilder = GestureDescription.Builder()
                   val duration = (250 + random.nextInt(200)).toLong()
-                  
+                  val gestureBuilder = GestureDescription.Builder()
                   gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0L, duration))
 
-                  dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
+                  val dispatched = dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
                       override fun onCompleted(gestureDescription: GestureDescription?) {
                           super.onCompleted(gestureDescription)
-                          if (!isRunning) return
-
-                          val jitterDelay = baseDelay + (random.nextInt(4000) - 2000)
-                          val finalWait = maxOf(3000L, jitterDelay)
-
-                          handler.postDelayed({
-                              performHumanSwipe(baseDelay)
-                          }, finalWait)
+                          scheduleNextSwipe(baseDelay)
                       }
 
                       override fun onCancelled(gestureDescription: GestureDescription?) {
                           super.onCancelled(gestureDescription)
+                          scheduleNextSwipe(baseDelay)
                       }
                   }, null)
+
+                  if (!dispatched) {
+                      scheduleNextSwipe(baseDelay)
+                  }
               }
 
               override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
